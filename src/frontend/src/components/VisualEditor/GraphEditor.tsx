@@ -16,7 +16,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { IRNode, IREdge, FlowchartIR } from '../../sync/ir';
+import { IRNode, IREdge, FlowchartIR, StateIR } from '../../sync/ir';
 import { DiagramIR } from '../../sync/SyncEngine';
 import { normalizeToGraphData, layoutWithDagre, reactFlowToIRUpdates, GraphData, FlowNode, FlowEdge } from './irToReactFlow';
 import { MermaidNode } from './MermaidNode';
@@ -406,8 +406,12 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, diagramType, onVis
     [handleDeleteSelected, setNodes, setEdges]
   );
 
-  // Get IR lines for ReadOnlyOverlay (only flowcharts have this)
-  const irLines = diagramType === 'flowchart' && ir ? (ir as FlowchartIR).lines : [];
+  // Get IR lines for ReadOnlyOverlay (flowcharts and state diagrams)
+  const irLines = diagramType === 'flowchart' && ir
+    ? (ir as FlowchartIR).lines
+    : diagramType === 'state' && ir
+    ? (ir as StateIR).lines
+    : [];
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }} onKeyDown={onKeyDown} tabIndex={0}>
@@ -498,6 +502,7 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, diagramType, onVis
       <PropertyPanel
         selectedNode={selectedNode}
         selectedEdge={selectedEdge}
+        diagramType={diagramType}
         onNodeUpdate={handleNodeUpdate}
         onEdgeUpdate={handleEdgeUpdate}
         onClose={handleClosePanel}
