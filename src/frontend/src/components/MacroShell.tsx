@@ -1,9 +1,14 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { useDiagramStore } from '../hooks/useDiagramStore';
 import { useForgeStorage } from '../hooks/useForgeStorage';
 import { DiagramTypePicker } from './DiagramTypePicker';
-import { EditMode } from './EditMode';
 import { ViewMode } from './ViewMode';
+import { ErrorBoundary } from './ErrorBoundary';
+import { LoadingSpinner } from './LoadingSpinner';
+
+// Lazy-load EditMode — it pulls in CodeMirror, React Flow, and all sync code.
+// View mode only needs mermaid.js (also lazy-loaded in DiagramRenderer).
+const EditMode = lazy(() => import('./EditMode').then(m => ({ default: m.EditMode })));
 
 interface MacroShellProps {
   localId: string;
@@ -15,18 +20,7 @@ export const MacroShell: React.FC<MacroShellProps> = ({ localId, isEditing }) =>
   const { initializeWithType } = useForgeStorage(localId);
 
   if (isLoading) {
-    return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 48,
-        color: '#6b778c',
-        fontSize: 14,
-      }}>
-        Loading diagram...
-      </div>
-    );
+    return <LoadingSpinner message="Loading diagram..." />;
   }
 
   if (error) {
@@ -50,13 +44,21 @@ export const MacroShell: React.FC<MacroShellProps> = ({ localId, isEditing }) =>
 
   // View mode — render only
   if (!isEditing) {
-    return <ViewMode code={code} />;
+    return (
+      <ErrorBoundary>
+        <ViewMode code={code} />
+      </ErrorBoundary>
+    );
   }
 
-  // Edit mode — full editor
+  // Edit mode — full editor (lazy-loaded)
   return (
     <div style={{ position: 'relative' }}>
-      <EditMode />
+      <ErrorBoundary>
+        <Suspense fallback={<LoadingSpinner message="Loading editor..." />}>
+          <EditMode />
+        </Suspense>
+      </ErrorBoundary>
       {isSaving && (
         <div style={{
           position: 'absolute',
