@@ -6,6 +6,7 @@ import type { FlowNode, FlowEdge } from './irToReactFlow';
 interface PropertyPanelProps {
   selectedNode: Node<FlowNode> | null;
   selectedEdge: Edge<FlowEdge> | null;
+  diagramType: string;
   onNodeUpdate: (id: string, data: Partial<FlowNode>) => void;
   onEdgeUpdate: (id: string, data: Partial<FlowEdge>) => void;
   onClose: () => void;
@@ -13,16 +14,16 @@ interface PropertyPanelProps {
 
 const NODE_SHAPES: { value: NodeShape; label: string }[] = [
   { value: 'rectangle', label: 'Rectangle' },
-  { value: 'rounded', label: 'Rounded' },
-  { value: 'stadium', label: 'Stadium' },
+  { value: 'rounded', label: 'Rounded Rectangle' },
+  { value: 'stadium', label: 'Pill' },
   { value: 'rhombus', label: 'Diamond' },
   { value: 'circle', label: 'Circle' },
   { value: 'hexagon', label: 'Hexagon' },
   { value: 'cylinder', label: 'Cylinder' },
-  { value: 'subroutine', label: 'Subroutine' },
+  { value: 'subroutine', label: 'Double Border' },
   { value: 'parallelogram', label: 'Parallelogram' },
   { value: 'trapezoid', label: 'Trapezoid' },
-  { value: 'asymmetric', label: 'Asymmetric' },
+  { value: 'asymmetric', label: 'Flag' },
   { value: 'double_circle', label: 'Double Circle' },
 ];
 
@@ -95,9 +96,13 @@ const selectStyle: React.CSSProperties = {
   appearance: 'auto' as React.CSSProperties['appearance'],
 };
 
+// Only flowcharts support node shape changes
+const SHAPE_TYPES = new Set(['flowchart']);
+
 export const PropertyPanel: React.FC<PropertyPanelProps> = ({
   selectedNode,
   selectedEdge,
+  diagramType,
   onNodeUpdate,
   onEdgeUpdate,
   onClose,
@@ -117,16 +122,20 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
           value={selectedNode.data.label}
           onChange={(e) => onNodeUpdate(selectedNode.id, { label: e.target.value })}
         />
-        <label style={labelStyle}>Shape</label>
-        <select
-          style={selectStyle}
-          value={selectedNode.data.shape}
-          onChange={(e) => onNodeUpdate(selectedNode.id, { shape: e.target.value })}
-        >
-          {NODE_SHAPES.map((s) => (
-            <option key={s.value} value={s.value}>{s.label}</option>
-          ))}
-        </select>
+        {SHAPE_TYPES.has(diagramType) && (
+          <>
+            <label style={labelStyle}>Shape</label>
+            <select
+              style={selectStyle}
+              value={selectedNode.data.shape}
+              onChange={(e) => onNodeUpdate(selectedNode.id, { shape: e.target.value })}
+            >
+              {NODE_SHAPES.map((s) => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+          </>
+        )}
       </div>
     );
   }
