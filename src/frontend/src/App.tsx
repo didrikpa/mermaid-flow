@@ -1,29 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { MacroShell } from './components/MacroShell';
+import { getForgeContext } from './hooks/forgeBridge';
 
-// In a real Forge Custom UI, the macro context provides localId and editing state.
-// For development, we simulate this.
 function useForgeContext() {
   const [context, setContext] = useState<{ localId: string; isEditing: boolean } | null>(null);
 
   useEffect(() => {
-    // Try to get Forge context via bridge
-    import('@forge/bridge').then(({ view }) => {
-      view.getContext().then((ctx) => {
-        const ctxAny = ctx as unknown as Record<string, unknown>;
-        const extension = ctxAny.extension as Record<string, unknown> | undefined;
-        setContext({
-          localId: (extension?.macro as Record<string, unknown>)?.id as string || 'dev-local-1',
-          isEditing: ctxAny.renderContext === 'edit' || extension?.renderContext === 'edit',
-        });
-      }).catch(() => {
-        // Development fallback
+    getForgeContext()
+      .then(setContext)
+      .catch(() => {
         setContext({ localId: 'dev-local-1', isEditing: true });
       });
-    }).catch(() => {
-      // Development fallback
-      setContext({ localId: 'dev-local-1', isEditing: true });
-    });
   }, []);
 
   return context;

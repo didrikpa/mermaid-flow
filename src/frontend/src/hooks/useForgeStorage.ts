@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { invoke } from '@forge/bridge';
+import { invoke } from './forgeBridge';
 import { useDiagramStore } from './useDiagramStore';
 import { DiagramData, DiagramType, STARTER_TEMPLATES } from '../types/diagram';
 
