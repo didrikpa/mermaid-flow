@@ -21,9 +21,12 @@ export const MacroShell: React.FC<MacroShellProps> = ({ localId, isEditing }) =>
   const { initializeWithType } = useForgeStorage(localId);
 
   const handleChangeType = useCallback(() => {
+    if (code.trim() && !window.confirm('This will replace your current diagram. Continue?')) {
+      return;
+    }
     setDiagramType(null);
     setCode('', 'load');
-  }, [setDiagramType, setCode]);
+  }, [code, setDiagramType, setCode]);
 
   if (isLoading) {
     return <LoadingSpinner message="Loading diagram..." />;
