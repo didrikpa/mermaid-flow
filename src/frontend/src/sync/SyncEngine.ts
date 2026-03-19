@@ -43,11 +43,26 @@ const SERIALIZERS: Record<string, SerializeFn> = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function translateUpdates(diagramType: string, ir: DiagramIR, updates: Record<string, any>): Record<string, any> {
   if (diagramType === 'flowchart') {
-    // Flowchart: apply modifiedNodes to the IR in-place
+    // Flowchart: apply modifiedNodes and modifiedEdges to the IR in-place
     const flowIR = ir as FlowchartIR;
     if (updates.modifiedNodes) {
       for (const [id, node] of updates.modifiedNodes as Map<string, IRNode>) {
         flowIR.nodes.set(id, node);
+      }
+    }
+    if (updates.modifiedEdges) {
+      const modEdges = updates.modifiedEdges as Map<number, IREdge>;
+      // Update edge references on lines (lines track edges by sequential index)
+      let edgeIdx = 0;
+      for (const line of flowIR.lines) {
+        if (line.type === 'edge_def' && line.edge) {
+          const updated = modEdges.get(edgeIdx);
+          if (updated) {
+            line.edge = updated;
+            flowIR.edges[edgeIdx] = updated;
+          }
+          edgeIdx++;
+        }
       }
     }
     if (updates.removedNodes) {
