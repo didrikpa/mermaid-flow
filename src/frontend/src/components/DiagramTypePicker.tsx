@@ -16,6 +16,15 @@ const TYPE_ICONS: Record<DiagramType, string> = {
   other: '</>',
 };
 
+const TYPE_DESCRIPTIONS: Record<DiagramType, string> = {
+  flowchart: 'Processes, decisions, and flows',
+  sequence: 'Message exchanges between services',
+  state: 'States and transitions',
+  er: 'Entities and relationships',
+  class: 'Classes, methods, and inheritance',
+  other: 'Write any Mermaid syntax directly',
+};
+
 export const DiagramTypePicker: React.FC<DiagramTypePickerProps> = ({ onSelect }) => {
   return (
     <div style={{
@@ -82,7 +91,8 @@ export const DiagramTypePicker: React.FC<DiagramTypePickerProps> = ({ onSelect }
             }}
           >
             <span style={{ fontSize: 24 }}>{TYPE_ICONS[type]}</span>
-            {DIAGRAM_LABELS[type]}
+            <span>{DIAGRAM_LABELS[type]}</span>
+            <span style={{ fontSize: 11, color: '#6b778c', fontWeight: 400 }}>{TYPE_DESCRIPTIONS[type]}</span>
           </button>
         ))}
       </div>
