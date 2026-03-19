@@ -1,6 +1,10 @@
 import dagre from 'dagre';
 import { Node, Edge, MarkerType } from '@xyflow/react';
-import { FlowchartIR, IRNode, IREdge, EdgeLineStyle, EdgeArrowType } from '../../sync/ir';
+import {
+  FlowchartIR, StateIR, ERIR, ClassIR,
+  IRNode, IREdge, NodeShape, EdgeLineStyle, EdgeArrowType,
+} from '../../sync/ir';
+import { DiagramIR } from '../../sync/SyncEngine';
 
 export interface FlowNode extends Record<string, unknown> {
   label: string;
@@ -12,6 +16,99 @@ export interface FlowEdge extends Record<string, unknown> {
   lineStyle: EdgeLineStyle;
   arrowType: EdgeArrowType;
   irEdgeIndex: number;
+}
+
+// Normalized graph data that all graph-based IRs convert to
+export interface GraphData {
+  nodes: Map<string, IRNode>;
+  edges: IREdge[];
+  direction: string;
+}
+
+// Shape defaults per diagram type
+const TYPE_SHAPES: Record<string, NodeShape> = {
+  state: 'rounded',
+  er: 'rectangle',
+  class: 'rectangle',
+};
+
+export function normalizeToGraphData(ir: DiagramIR, diagramType: string): GraphData {
+  if (diagramType === 'flowchart') {
+    const fir = ir as FlowchartIR;
+    return { nodes: fir.nodes, edges: fir.edges, direction: fir.direction };
+  }
+
+  if (diagramType === 'state') {
+    const sir = ir as StateIR;
+    const nodes = new Map<string, IRNode>();
+    for (const [id, state] of sir.states) {
+      nodes.set(id, {
+        id,
+        label: state.label,
+        shape: id === '[*]' ? 'circle' : 'rounded',
+        raw: state.raw,
+      });
+    }
+    const edges: IREdge[] = sir.transitions.map(t => ({
+      sourceId: t.from,
+      targetId: t.to,
+      label: t.label,
+      lineStyle: 'solid' as EdgeLineStyle,
+      arrowType: 'arrow' as EdgeArrowType,
+      raw: t.raw,
+    }));
+    return { nodes, edges, direction: 'TB' };
+  }
+
+  if (diagramType === 'er') {
+    const eir = ir as ERIR;
+    const nodes = new Map<string, IRNode>();
+    for (const [name, entity] of eir.entities) {
+      nodes.set(name, {
+        id: name,
+        label: name,
+        shape: 'rectangle',
+        raw: entity.raw,
+      });
+    }
+    const edges: IREdge[] = eir.relationships.map(r => ({
+      sourceId: r.entityA,
+      targetId: r.entityB,
+      label: `${r.cardA}--${r.cardB} ${r.label}`,
+      lineStyle: 'solid' as EdgeLineStyle,
+      arrowType: 'open' as EdgeArrowType,
+      raw: r.raw,
+    }));
+    return { nodes, edges, direction: 'LR' };
+  }
+
+  if (diagramType === 'class') {
+    const cir = ir as ClassIR;
+    const nodes = new Map<string, IRNode>();
+    for (const [name, cls] of cir.classes) {
+      const memberStr = cls.members.length > 0
+        ? '\n' + cls.members.map(m => `${m.visibility}${m.type ? m.type + ' ' : ''}${m.name}`).join('\n')
+        : '';
+      nodes.set(name, {
+        id: name,
+        label: name + memberStr,
+        shape: 'rectangle',
+        raw: cls.raw.join('\n'),
+      });
+    }
+    const edges: IREdge[] = cir.relations.map(r => ({
+      sourceId: r.classA,
+      targetId: r.classB,
+      label: r.label,
+      lineStyle: (r.relationType.includes('dashed') || r.relationType === 'dependency' || r.relationType === 'realization') ? 'dotted' as EdgeLineStyle : 'solid' as EdgeLineStyle,
+      arrowType: 'arrow' as EdgeArrowType,
+      raw: r.raw,
+    }));
+    return { nodes, edges, direction: 'TB' };
+  }
+
+  // Fallback — shouldn't happen
+  return { nodes: new Map(), edges: [], direction: 'TB' };
 }
 
 const NODE_WIDTH = 172;
@@ -36,22 +133,21 @@ function getEdgeStyle(lineStyle: EdgeLineStyle): React.CSSProperties {
 }
 
 export function layoutWithDagre(
-  ir: FlowchartIR,
-  direction: string = 'TB'
+  graphData: GraphData,
 ): { nodes: Node<FlowNode>[]; edges: Edge<FlowEdge>[] } {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
 
-  const rankdir = direction === 'TD' ? 'TB' : direction;
+  const rankdir = graphData.direction === 'TD' ? 'TB' : graphData.direction;
   g.setGraph({ rankdir, nodesep: 50, ranksep: 50, edgesep: 20, marginx: 20, marginy: 20 });
 
   // Add nodes
-  for (const [id, node] of ir.nodes) {
+  for (const [id, node] of graphData.nodes) {
     g.setNode(id, { width: NODE_WIDTH, height: NODE_HEIGHT, label: node.label });
   }
 
   // Add edges
-  for (const edge of ir.edges) {
+  for (const edge of graphData.edges) {
     g.setEdge(edge.sourceId, edge.targetId);
   }
 
@@ -59,7 +155,7 @@ export function layoutWithDagre(
 
   // Convert to React Flow nodes
   const nodes: Node<FlowNode>[] = [];
-  for (const [id, node] of ir.nodes) {
+  for (const [id, node] of graphData.nodes) {
     const dagreNode = g.node(id);
     if (dagreNode) {
       nodes.push({
@@ -78,7 +174,7 @@ export function layoutWithDagre(
   }
 
   // Convert to React Flow edges
-  const edges: Edge<FlowEdge>[] = ir.edges.map((edge, index) => ({
+  const edges: Edge<FlowEdge>[] = graphData.edges.map((edge, index) => ({
     id: `e-${edge.sourceId}-${edge.targetId}-${index}`,
     source: edge.sourceId,
     target: edge.targetId,
@@ -99,7 +195,7 @@ export function layoutWithDagre(
 export function reactFlowToIRUpdates(
   rfNodes: Node<FlowNode>[],
   rfEdges: Edge<FlowEdge>[],
-  originalIR: FlowchartIR
+  graphData: GraphData
 ): {
   modifiedNodes: Map<string, IRNode>;
   modifiedEdges: Map<number, IREdge>;
@@ -118,9 +214,8 @@ export function reactFlowToIRUpdates(
   // Check for modified/new nodes
   const currentNodeIds = new Set(rfNodes.map(n => n.id));
   for (const rfNode of rfNodes) {
-    const existing = originalIR.nodes.get(rfNode.id);
+    const existing = graphData.nodes.get(rfNode.id);
     if (!existing) {
-      // New node
       newNodes.push({
         id: rfNode.id,
         label: rfNode.data.label,
@@ -128,7 +223,6 @@ export function reactFlowToIRUpdates(
         raw: '',
       });
     } else if (existing.label !== rfNode.data.label || existing.shape !== rfNode.data.shape) {
-      // Modified node
       modifiedNodes.set(rfNode.id, {
         ...existing,
         label: rfNode.data.label,
@@ -138,7 +232,7 @@ export function reactFlowToIRUpdates(
   }
 
   // Check for removed nodes
-  for (const [id] of originalIR.nodes) {
+  for (const [id] of graphData.nodes) {
     if (!currentNodeIds.has(id)) {
       removedNodes.add(id);
     }
@@ -147,8 +241,8 @@ export function reactFlowToIRUpdates(
   // Check for modified/new/removed edges
   const currentEdgeSet = new Set(rfEdges.map(e => `${e.source}-${e.target}`));
   for (const rfEdge of rfEdges) {
-    if (rfEdge.data?.irEdgeIndex !== undefined) {
-      const origEdge = originalIR.edges[rfEdge.data.irEdgeIndex];
+    if (rfEdge.data?.irEdgeIndex !== undefined && rfEdge.data.irEdgeIndex >= 0) {
+      const origEdge = graphData.edges[rfEdge.data.irEdgeIndex];
       if (origEdge) {
         if (
           origEdge.sourceId !== rfEdge.source ||
@@ -164,7 +258,6 @@ export function reactFlowToIRUpdates(
         }
       }
     } else {
-      // New edge
       newEdges.push({
         sourceId: rfEdge.source,
         targetId: rfEdge.target,
@@ -177,8 +270,8 @@ export function reactFlowToIRUpdates(
   }
 
   // Check for removed edges
-  for (let i = 0; i < originalIR.edges.length; i++) {
-    const edge = originalIR.edges[i];
+  for (let i = 0; i < graphData.edges.length; i++) {
+    const edge = graphData.edges[i];
     const key = `${edge.sourceId}-${edge.targetId}`;
     if (!currentEdgeSet.has(key)) {
       removedEdges.add(i);
