@@ -80,6 +80,10 @@ export function useForgeStorage(localId: string | null) {
     };
   }, [localId, diagramType, code, isDirty, setSaving, setDirty, setError]);
 
+  // Keep refs to latest values for unmount flush
+  const latestRef = useRef({ localId, diagramType, code, isDirty });
+  latestRef.current = { localId, diagramType, code, isDirty };
+
   // Flush on unmount
   useEffect(() => {
     return () => {
@@ -87,9 +91,10 @@ export function useForgeStorage(localId: string | null) {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
       }
-      // Fire-and-forget final save
-      if (localId && diagramType && isDirty) {
-        invoke('saveDiagram', { localId, type: diagramType, code }).catch(() => {});
+      // Fire-and-forget final save using latest values
+      const { localId: lid, diagramType: dt, code: c, isDirty: dirty } = latestRef.current;
+      if (lid && dt && dirty) {
+        invoke('saveDiagram', { localId: lid, type: dt, code: c }).catch(() => {});
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
