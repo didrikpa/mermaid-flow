@@ -15,11 +15,11 @@ interface SequenceEditorProps {
   syncVersion: number;
 }
 
-const LANE_WIDTH = 160;
+const LANE_WIDTH = 180;
 const LANE_GAP = 20;
-const HEADER_HEIGHT = 60;
+const HEADER_HEIGHT = 70;
 const MESSAGE_HEIGHT = 50;
-const PADDING = 20;
+const PADDING = 30;
 
 const ARROW_LABELS: Record<SequenceArrowType, string> = {
   solid: 'Solid (->>) ',
@@ -38,8 +38,9 @@ export const SequenceEditor: React.FC<SequenceEditorProps> = ({ ir, onVisualChan
   const [participants, setParticipants] = useState<SequenceParticipant[]>([]);
   const [messages, setMessages] = useState<SequenceMessage[]>([]);
   const [selectedMsg, setSelectedMsg] = useState<number | null>(null);
+  const [selectedParticipant, setSelectedParticipant] = useState<string | null>(null);
   const [editingParticipant, setEditingParticipant] = useState<string | null>(null);
-  const [dragSource, setDragSource] = useState<string | null>(null);
+  const dragSourceRef = useRef<string | null>(null);
   const lastSyncRef = useRef(0);
   const isVisualEditRef = useRef(false);
 
@@ -147,30 +148,49 @@ export const SequenceEditor: React.FC<SequenceEditorProps> = ({ ir, onVisualChan
   const panelRef = useRef<HTMLDivElement>(null);
 
   const handleBackgroundClick = useCallback((e: ReactMouseEvent) => {
-    // Dismiss the message panel when clicking outside it and outside messages
+    // Dismiss selection when clicking background
+    setSelectedParticipant(null);
     if (selectedMsg !== null && panelRef.current && !panelRef.current.contains(e.target as Node)) {
       const target = e.target as SVGElement | HTMLElement;
-      // Don't dismiss if clicking on a message arrow or its label
       if (!target.closest?.('g[style*="cursor: pointer"]')) {
         setSelectedMsg(null);
       }
     }
   }, [selectedMsg]);
 
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      setSelectedParticipant(null);
+      setSelectedMsg(null);
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedParticipant) {
+      handleRemoveParticipant(selectedParticipant);
+      setSelectedParticipant(null);
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedMsg !== null) {
+      handleRemoveMessage(selectedMsg);
+      setSelectedMsg(null);
+    }
+  }, [selectedParticipant, selectedMsg, handleRemoveParticipant, handleRemoveMessage]);
+
   return (
-    <div style={{ width: '100%', height: '100%', overflow: 'auto', position: 'relative' }}
-      onClick={handleBackgroundClick}>
+    <div style={{
+      width: '100%', height: '100%', overflow: 'auto', position: 'relative',
+      background: '#f8f9fa', outline: 'none',
+    }}
+      onClick={handleBackgroundClick}
+      onKeyDown={handleKeyDown}
+      tabIndex={0}>
       {/* Toolbar */}
       <div style={{
-        padding: '6px 12px',
-        borderBottom: '1px solid #ebecf0',
+        padding: '8px 12px',
         display: 'flex',
         gap: 4,
-        background: '#fff',
+        background: 'transparent',
         position: 'sticky',
         top: 0,
         zIndex: 10,
-      }}>
+      }} onMouseDown={(e) => e.stopPropagation()}>
         <button onClick={() => handleAddParticipant('participant')} style={toolbarBtnStyle}>+ Participant</button>
         <button onClick={() => handleAddParticipant('actor')} style={toolbarBtnStyle}>+ Actor</button>
         <button onClick={handleAddMessage} style={toolbarBtnStyle} disabled={participants.length < 2}>+ Message</button>
@@ -178,6 +198,22 @@ export const SequenceEditor: React.FC<SequenceEditorProps> = ({ ir, onVisualChan
 
       {/* SVG Canvas */}
       <svg width={totalWidth} height={totalHeight} style={{ display: 'block', margin: '0 auto' }}>
+        {/* Shared defs */}
+        <defs>
+          <pattern id="seq-grid" width="16" height="16" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.5" fill="#ebecf0" />
+          </pattern>
+          <filter id="node-shadow" x="-4%" y="-4%" width="108%" height="116%">
+            <feDropShadow dx="0" dy="1" stdDeviation="2" floodOpacity="0.08" />
+          </filter>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#42526e" />
+          </marker>
+          <marker id="arrowhead-selected" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#4c9aff" />
+          </marker>
+        </defs>
+        <rect width={totalWidth} height={totalHeight} fill="url(#seq-grid)" />
         {/* Lifelines */}
         {participants.map((p, i) => {
           const x = getLaneX(i);
@@ -185,58 +221,67 @@ export const SequenceEditor: React.FC<SequenceEditorProps> = ({ ir, onVisualChan
             <g key={p.id}>
               {/* Lifeline */}
               <line x1={x} y1={HEADER_HEIGHT} x2={x} y2={totalHeight - 20}
-                stroke="#dfe1e6" strokeWidth={1} strokeDasharray="4,4" />
+                stroke="#c1c7d0" strokeWidth={1} strokeDasharray="6,4" />
+
+              {/* Invisible hit area for easier clicking and dragging */}
+              <rect
+                x={x - LANE_WIDTH / 2} y={4}
+                width={LANE_WIDTH} height={p.type === 'actor' ? 62 : 52}
+                fill="transparent"
+                style={{ cursor: 'grab' }}
+                onMouseDown={() => { dragSourceRef.current = p.id; }}
+                onMouseUp={() => {
+                  if (dragSourceRef.current && dragSourceRef.current !== p.id) {
+                    handleParticipantDrop(dragSourceRef.current, i);
+                  }
+                  dragSourceRef.current = null;
+                }}
+                onClick={(e) => { e.stopPropagation(); setSelectedParticipant(p.id); setSelectedMsg(null); }}
+                onDoubleClick={() => setEditingParticipant(p.id)}
+              />
 
               {p.type === 'actor' ? (
-                /* Stick figure for actors */
-                <g
-                  style={{ cursor: 'grab' }}
-                  onMouseDown={() => setDragSource(p.id)}
-                  onMouseUp={() => {
-                    if (dragSource && dragSource !== p.id) {
-                      handleParticipantDrop(dragSource, i);
-                    }
-                    setDragSource(null);
-                  }}
-                  onDoubleClick={() => setEditingParticipant(p.id)}
-                >
+                /* Actor: stick figure inside a card */
+                <g style={{ pointerEvents: 'none' }}>
+                  <rect
+                    x={x - LANE_WIDTH / 2 + 10} y={8}
+                    width={LANE_WIDTH - 20} height={48}
+                    rx={8} fill="#fff"
+                    stroke={(selectedParticipant === p.id || editingParticipant === p.id) ? '#4c9aff' : '#dfe1e6'}
+                    strokeWidth={(selectedParticipant === p.id || editingParticipant === p.id) ? 2 : 1}
+                    filter="url(#node-shadow)"
+                  />
                   {/* Head */}
-                  <circle cx={x} cy={16} r={6}
-                    fill="none" stroke={editingParticipant === p.id ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
+                  <circle cx={x} cy={20} r={5}
+                    fill="none" stroke={(selectedParticipant === p.id || editingParticipant === p.id) ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
                   {/* Body */}
-                  <line x1={x} y1={22} x2={x} y2={35}
-                    stroke={editingParticipant === p.id ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
+                  <line x1={x} y1={25} x2={x} y2={35}
+                    stroke={(selectedParticipant === p.id || editingParticipant === p.id) ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
                   {/* Arms */}
-                  <line x1={x - 10} y1={27} x2={x + 10} y2={27}
-                    stroke={editingParticipant === p.id ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
+                  <line x1={x - 8} y1={29} x2={x + 8} y2={29}
+                    stroke={(selectedParticipant === p.id || editingParticipant === p.id) ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
                   {/* Legs */}
-                  <line x1={x} y1={35} x2={x - 8} y2={45}
-                    stroke={editingParticipant === p.id ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
-                  <line x1={x} y1={35} x2={x + 8} y2={45}
-                    stroke={editingParticipant === p.id ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
+                  <line x1={x} y1={35} x2={x - 6} y2={42}
+                    stroke={(selectedParticipant === p.id || editingParticipant === p.id) ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
+                  <line x1={x} y1={35} x2={x + 6} y2={42}
+                    stroke={(selectedParticipant === p.id || editingParticipant === p.id) ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
                 </g>
               ) : (
-                /* Box for participants */
+                /* Participant: styled card matching flowchart nodes */
                 <rect
                   x={x - LANE_WIDTH / 2 + 10} y={10}
-                  width={LANE_WIDTH - 20} height={40}
-                  rx={4} fill="#fff" stroke={editingParticipant === p.id ? '#4c9aff' : '#dfe1e6'}
-                  strokeWidth={editingParticipant === p.id ? 2 : 1}
-                  style={{ cursor: 'grab' }}
-                  onMouseDown={() => setDragSource(p.id)}
-                  onMouseUp={() => {
-                    if (dragSource && dragSource !== p.id) {
-                      handleParticipantDrop(dragSource, i);
-                    }
-                    setDragSource(null);
-                  }}
-                  onDoubleClick={() => setEditingParticipant(p.id)}
+                  width={LANE_WIDTH - 20} height={44}
+                  rx={8} fill="#fff"
+                  stroke={(selectedParticipant === p.id || editingParticipant === p.id) ? '#4c9aff' : '#dfe1e6'}
+                  strokeWidth={(selectedParticipant === p.id || editingParticipant === p.id) ? 2 : 1}
+                  filter="url(#node-shadow)"
+                  style={{ pointerEvents: 'none' }}
                 />
               )}
 
               {/* Label */}
               {editingParticipant === p.id ? (
-                <foreignObject x={x - LANE_WIDTH / 2 + 14} y={p.type === 'actor' ? 46 : 16} width={LANE_WIDTH - 28} height={28}>
+                <foreignObject x={x - LANE_WIDTH / 2 + 14} y={p.type === 'actor' ? 44 : 20} width={LANE_WIDTH - 28} height={28}>
                   <input
                     autoFocus
                     defaultValue={p.alias}
@@ -250,22 +295,19 @@ export const SequenceEditor: React.FC<SequenceEditorProps> = ({ ir, onVisualChan
                     }}
                     style={{
                       width: '100%', border: 'none', textAlign: 'center',
-                      fontSize: 12, fontFamily: 'inherit', outline: 'none',
-                      background: 'transparent',
+                      fontSize: 13, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                      outline: 'none', background: 'transparent', color: '#172b4d',
                     }}
                   />
                 </foreignObject>
               ) : (
-                <text x={x} y={p.type === 'actor' ? 58 : 35} textAnchor="middle" fontSize={12} fill="#172b4d" fontWeight={500}>
+                <text x={x} y={p.type === 'actor' ? 52 : 37}
+                  textAnchor="middle" fontSize={13} fill="#172b4d" fontWeight={500}
+                  fontFamily="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
+                  style={{ pointerEvents: 'none', userSelect: 'none' }}>
                   {p.alias}
                 </text>
               )}
-              {/* Remove button */}
-              <text x={x + LANE_WIDTH / 2 - 16} y={p.type === 'actor' ? 14 : 22} fontSize={12} fill="#ae2a19"
-                style={{ cursor: 'pointer' }}
-                onClick={() => handleRemoveParticipant(p.id)}>
-                x
-              </text>
             </g>
           );
         })}
@@ -292,30 +334,41 @@ export const SequenceEditor: React.FC<SequenceEditorProps> = ({ ir, onVisualChan
                 stroke={isSelected ? '#4c9aff' : '#42526e'}
                 strokeWidth={isSelected ? 2 : 1.5}
                 strokeDasharray={isDashed ? '6,4' : undefined}
-                markerEnd="url(#arrowhead)" />
+                markerEnd={isSelected ? 'url(#arrowhead-selected)' : 'url(#arrowhead)'} />
+              {/* Label background */}
+              {msg.text && (
+                <rect
+                  x={(x1 + x2) / 2 - msg.text.length * 3.5 - 6}
+                  y={y - 20}
+                  width={msg.text.length * 7 + 12}
+                  height={16}
+                  rx={4}
+                  fill="#f8f9fa"
+                  stroke={isSelected ? '#4c9aff' : '#ebecf0'}
+                  strokeWidth={0.5}
+                />
+              )}
               {/* Label */}
               <text x={(x1 + x2) / 2} y={y - 8}
-                textAnchor="middle" fontSize={11} fill="#42526e">
+                textAnchor="middle" fontSize={12} fill={isSelected ? '#4c9aff' : '#172b4d'}
+                fontFamily="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
+                fontWeight={isSelected ? 600 : 400}
+                style={{ userSelect: 'none' }}>
                 {msg.text}
               </text>
               {/* Remove button when selected */}
               {isSelected && (
-                <text x={Math.max(x1, x2) + 12} y={y + 4} fontSize={11} fill="#ae2a19"
-                  style={{ cursor: 'pointer' }}
-                  onClick={(e) => { e.stopPropagation(); handleRemoveMessage(i); }}>
-                  [del]
-                </text>
+                <g style={{ cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); handleRemoveMessage(i); }}>
+                  <circle cx={Math.max(x1, x2) + 16} cy={y} r={8} fill="#ffedeb" stroke="#ae2a19" strokeWidth={1} />
+                  <text x={Math.max(x1, x2) + 16} y={y + 4} textAnchor="middle" fontSize={12} fill="#ae2a19"
+                    fontFamily="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif">
+                    &times;
+                  </text>
+                </g>
               )}
             </g>
           );
         })}
-
-        {/* Arrow marker */}
-        <defs>
-          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-            <polygon points="0 0, 10 3.5, 0 7" fill="#42526e" />
-          </marker>
-        </defs>
       </svg>
 
       {/* Selected message editor */}
@@ -370,7 +423,7 @@ export const SequenceEditor: React.FC<SequenceEditorProps> = ({ ir, onVisualChan
 };
 
 const toolbarBtnStyle: React.CSSProperties = {
-  padding: '4px 10px', fontSize: 12, fontWeight: 500,
+  padding: '6px 12px', fontSize: 12, fontWeight: 500,
   background: '#0052cc', color: '#fff', border: 'none',
   borderRadius: 4, cursor: 'pointer',
 };
