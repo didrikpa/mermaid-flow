@@ -9,8 +9,8 @@ interface MermaidNodeProps {
 
 const SHAPE_STYLES: Record<NodeShape, React.CSSProperties> = {
   rectangle: { borderRadius: 4 },
-  rounded: { borderRadius: 20 },
-  stadium: { borderRadius: 999 },
+  rounded: { borderRadius: 8 },
+  stadium: { borderRadius: 999, paddingLeft: 24, paddingRight: 24 },
   subroutine: { borderRadius: 4, borderWidth: 3, borderStyle: 'double' },
   cylinder: { borderRadius: '50% / 10%' },
   circle: { borderRadius: '50%', width: 80, height: 80 },
@@ -29,6 +29,8 @@ export const MermaidNode: React.FC<MermaidNodeProps> = ({ data, selected }) => {
   const [editLabel, setEditLabel] = useState(data.label);
 
   const shape = (data.shape || 'rectangle') as NodeShape;
+  const isStateMarker = data.label === '[*]';
+  const isEndMarker = isStateMarker && shape === 'double_circle';
   const shapeStyle = SHAPE_STYLES[shape] || SHAPE_STYLES.rectangle;
   const isRotated = shape === 'rhombus';
   const isSkewed = shape === 'parallelogram' || shape === 'parallelogram_alt';
@@ -58,6 +60,29 @@ export const MermaidNode: React.FC<MermaidNodeProps> = ({ data, selected }) => {
       setIsEditing(false);
     }
   }, [data.label]);
+
+  // State diagram start marker: small filled circle
+  // State diagram end marker: filled circle with outer ring
+  if (isStateMarker) {
+    return (
+      <div
+        style={{
+          width: isEndMarker ? 28 : 24,
+          height: isEndMarker ? 28 : 24,
+          borderRadius: '50%',
+          background: selected ? '#4c9aff' : '#172b4d',
+          border: isEndMarker
+            ? `4px double ${selected ? '#4c9aff' : '#172b4d'}`
+            : `2px solid ${selected ? '#4c9aff' : '#172b4d'}`,
+          cursor: 'grab',
+          transition: 'border-color 0.15s ease',
+        }}
+      >
+        <Handle type="target" position={Position.Top} style={{ background: '#4c9aff', width: 6, height: 6 }} />
+        <Handle type="source" position={Position.Bottom} style={{ background: '#4c9aff', width: 6, height: 6 }} />
+      </div>
+    );
+  }
 
   return (
     <div
