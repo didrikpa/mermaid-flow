@@ -15,7 +15,7 @@ interface DiagramState {
   isDirty: boolean;
 
   setLocalId: (id: string) => void;
-  setDiagramType: (type: DiagramType) => void;
+  setDiagramType: (type: DiagramType | null) => void;
   setCode: (code: string, origin: EditOrigin) => void;
   setLoading: (loading: boolean) => void;
   setSaving: (saving: boolean) => void;
