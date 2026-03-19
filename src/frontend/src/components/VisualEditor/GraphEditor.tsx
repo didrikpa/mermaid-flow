@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useRef, useMemo } from 'react';
 import {
   ReactFlow,
   Background,
@@ -16,14 +16,16 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { FlowchartIR, IRNode, IREdge } from '../../sync/ir';
-import { layoutWithDagre, reactFlowToIRUpdates, FlowNode, FlowEdge } from './irToReactFlow';
+import { IRNode, IREdge, FlowchartIR } from '../../sync/ir';
+import { DiagramIR } from '../../sync/SyncEngine';
+import { normalizeToGraphData, layoutWithDagre, reactFlowToIRUpdates, GraphData, FlowNode, FlowEdge } from './irToReactFlow';
 import { MermaidNode } from './MermaidNode';
 import { PropertyPanel } from './PropertyPanel';
 import { ReadOnlyOverlay } from './ReadOnlyOverlay';
 
 interface GraphEditorProps {
-  ir: FlowchartIR | null;
+  ir: DiagramIR | null;
+  diagramType: string;
   onVisualChange: (updates: {
     modifiedNodes?: Map<string, IRNode>;
     modifiedEdges?: Map<number, IREdge>;
@@ -42,13 +44,14 @@ const nodeTypes: NodeTypes = {
 
 let nextNodeId = 1;
 
-export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, onVisualChange, syncVersion }) => {
+export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, diagramType, onVisualChange, syncVersion }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowNode>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<FlowEdge>>([]);
   const [selectedNode, setSelectedNode] = useState<Node<FlowNode> | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<Edge<FlowEdge> | null>(null);
   const lastSyncVersionRef = useRef(0);
   const isVisualEditRef = useRef(false);
+  const graphDataRef = useRef<GraphData | null>(null);
 
   // Update React Flow when IR changes (from code editor)
   useEffect(() => {
@@ -59,10 +62,12 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, onVisualChange, sy
     }
     lastSyncVersionRef.current = syncVersion;
 
-    const layout = layoutWithDagre(ir, ir.direction);
+    const graphData = normalizeToGraphData(ir, diagramType);
+    graphDataRef.current = graphData;
+    const layout = layoutWithDagre(graphData);
     setNodes(layout.nodes);
     setEdges(layout.edges);
-  }, [ir, syncVersion, setNodes, setEdges]);
+  }, [ir, diagramType, syncVersion, setNodes, setEdges]);
 
   const handleConnect = useCallback(
     (connection: Connection) => {
@@ -75,19 +80,28 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, onVisualChange, sy
       );
       setEdges(newEdge);
 
-      // Notify sync engine
-      if (ir) {
+      if (graphDataRef.current) {
         isVisualEditRef.current = true;
-        const updates = reactFlowToIRUpdates(nodes, newEdge, ir);
+        const updates = reactFlowToIRUpdates(nodes, newEdge, graphDataRef.current);
         onVisualChange(updates);
       }
     },
-    [edges, nodes, ir, setEdges, onVisualChange]
+    [edges, nodes, setEdges, onVisualChange]
   );
 
   const onSelectionChange = useCallback(({ nodes: selNodes, edges: selEdges }: OnSelectionChangeParams) => {
     setSelectedNode(selNodes.length === 1 ? selNodes[0] as Node<FlowNode> : null);
     setSelectedEdge(selEdges.length === 1 ? selEdges[0] as Edge<FlowEdge> : null);
+  }, []);
+
+  const handlePaneClick = useCallback(() => {
+    setSelectedNode(null);
+    setSelectedEdge(null);
+  }, []);
+
+  const handleClosePanel = useCallback(() => {
+    setSelectedNode(null);
+    setSelectedEdge(null);
   }, []);
 
   const handleNodeUpdate = useCallback(
@@ -96,17 +110,16 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, onVisualChange, sy
         nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...data } } : n))
       );
 
-      // Sync back to code
-      if (ir) {
+      if (graphDataRef.current) {
         isVisualEditRef.current = true;
         const updatedNodes = nodes.map((n) =>
           n.id === id ? { ...n, data: { ...n.data, ...data } } : n
         );
-        const updates = reactFlowToIRUpdates(updatedNodes, edges, ir);
+        const updates = reactFlowToIRUpdates(updatedNodes, edges, graphDataRef.current);
         onVisualChange(updates);
       }
     },
-    [nodes, edges, ir, setNodes, onVisualChange]
+    [nodes, edges, setNodes, onVisualChange]
   );
 
   const handleEdgeUpdate = useCallback(
@@ -115,16 +128,16 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, onVisualChange, sy
         eds.map((e) => (e.id === id ? { ...e, data: { ...e.data!, ...data } } : e))
       );
 
-      if (ir) {
+      if (graphDataRef.current) {
         isVisualEditRef.current = true;
         const updatedEdges = edges.map((e) =>
           e.id === id ? { ...e, data: { ...e.data!, ...data } } : e
         );
-        const updates = reactFlowToIRUpdates(nodes, updatedEdges, ir);
+        const updates = reactFlowToIRUpdates(nodes, updatedEdges, graphDataRef.current);
         onVisualChange(updates);
       }
     },
-    [nodes, edges, ir, setEdges, onVisualChange]
+    [nodes, edges, setEdges, onVisualChange]
   );
 
   const handleAddNode = useCallback(() => {
@@ -138,12 +151,12 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, onVisualChange, sy
     const updatedNodes = [...nodes, newNode];
     setNodes(updatedNodes);
 
-    if (ir) {
+    if (graphDataRef.current) {
       isVisualEditRef.current = true;
-      const updates = reactFlowToIRUpdates(updatedNodes, edges, ir);
+      const updates = reactFlowToIRUpdates(updatedNodes, edges, graphDataRef.current);
       onVisualChange(updates);
     }
-  }, [nodes, edges, ir, setNodes, onVisualChange]);
+  }, [nodes, edges, setNodes, onVisualChange]);
 
   const handleDeleteSelected = useCallback(() => {
     const nodeIdsToRemove = new Set(
@@ -156,14 +169,13 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, onVisualChange, sy
     setNodes(updatedNodes);
     setEdges(updatedEdges);
 
-    if (ir) {
+    if (graphDataRef.current) {
       isVisualEditRef.current = true;
-      const updates = reactFlowToIRUpdates(updatedNodes, updatedEdges, ir);
+      const updates = reactFlowToIRUpdates(updatedNodes, updatedEdges, graphDataRef.current);
       onVisualChange(updates);
     }
-  }, [nodes, edges, ir, setNodes, setEdges, onVisualChange]);
+  }, [nodes, edges, setNodes, setEdges, onVisualChange]);
 
-  // Handle keyboard delete
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
       if (event.key === 'Delete' || event.key === 'Backspace') {
@@ -172,6 +184,9 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, onVisualChange, sy
     },
     [handleDeleteSelected]
   );
+
+  // Get IR lines for ReadOnlyOverlay (only flowcharts have this)
+  const irLines = diagramType === 'flowchart' && ir ? (ir as FlowchartIR).lines : [];
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }} onKeyDown={onKeyDown} tabIndex={0}>
@@ -182,11 +197,12 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, onVisualChange, sy
         onEdgesChange={onEdgesChange}
         onConnect={handleConnect}
         onSelectionChange={onSelectionChange}
+        onPaneClick={handlePaneClick}
         nodeTypes={nodeTypes}
         fitView
         snapToGrid
         snapGrid={[16, 16]}
-        deleteKeyCode={null} // We handle delete ourselves
+        deleteKeyCode={null}
       >
         <Background gap={16} size={1} color="#ebecf0" />
         <Controls />
@@ -235,8 +251,9 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, onVisualChange, sy
         selectedEdge={selectedEdge}
         onNodeUpdate={handleNodeUpdate}
         onEdgeUpdate={handleEdgeUpdate}
+        onClose={handleClosePanel}
       />
-      {ir && <ReadOnlyOverlay lines={ir.lines} />}
+      {irLines.length > 0 && <ReadOnlyOverlay lines={irLines} />}
     </div>
   );
 };
