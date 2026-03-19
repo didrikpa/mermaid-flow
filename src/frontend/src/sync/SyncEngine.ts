@@ -1,35 +1,59 @@
-import { FlowchartIR, IRNode, IREdge } from './ir';
+import { FlowchartIR, SequenceIR, StateIR, ERIR, ClassIR } from './ir';
 import { parseFlowchart } from './parsers/flowchartParser';
 import { serializeFlowchart } from './serializers/flowchartSerializer';
+import { parseSequence } from './parsers/sequenceParser';
+import { serializeSequence } from './serializers/sequenceSerializer';
+import { parseState } from './parsers/stateParser';
+import { serializeState } from './serializers/stateSerializer';
+import { parseER } from './parsers/erParser';
+import { serializeER } from './serializers/erSerializer';
+import { parseClass } from './parsers/classParser';
+import { serializeClass } from './serializers/classSerializer';
 
+export type DiagramIR = FlowchartIR | SequenceIR | StateIR | ERIR | ClassIR;
 export type SyncOrigin = 'code' | 'visual';
 
-export interface SyncState {
-  ir: FlowchartIR;
-  syncVersion: number;
-}
+type ParseFn = (code: string) => DiagramIR;
+type SerializeFn = (ir: DiagramIR, modifications?: Record<string, unknown>) => string;
+
+const PARSERS: Record<string, ParseFn> = {
+  flowchart: parseFlowchart,
+  sequence: parseSequence as ParseFn,
+  state: parseState as ParseFn,
+  er: parseER as ParseFn,
+  class: parseClass as ParseFn,
+};
+
+const SERIALIZERS: Record<string, SerializeFn> = {
+  flowchart: serializeFlowchart as SerializeFn,
+  sequence: serializeSequence as SerializeFn,
+  state: serializeState as SerializeFn,
+  er: serializeER as SerializeFn,
+  class: serializeClass as SerializeFn,
+};
 
 export class SyncEngine {
-  private ir: FlowchartIR | null = null;
+  private ir: DiagramIR | null = null;
   private syncVersion = 0;
   private lastOrigin: SyncOrigin | null = null;
   private codeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private visualDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private onCodeUpdate: ((code: string) => void) | null = null;
-  private onIRUpdate: ((ir: FlowchartIR) => void) | null = null;
-
+  private onIRUpdate: ((ir: DiagramIR) => void) | null = null;
+  private diagramType: string;
   private debounceMs: number;
 
-  constructor(debounceMs = 300) {
+  constructor(diagramType: string, debounceMs = 300) {
+    this.diagramType = diagramType;
     this.debounceMs = debounceMs;
   }
 
-  setCallbacks(onCodeUpdate: (code: string) => void, onIRUpdate: (ir: FlowchartIR) => void) {
+  setCallbacks(onCodeUpdate: (code: string) => void, onIRUpdate: (ir: DiagramIR) => void) {
     this.onCodeUpdate = onCodeUpdate;
     this.onIRUpdate = onIRUpdate;
   }
 
-  getIR(): FlowchartIR | null {
+  getIR(): DiagramIR | null {
     return this.ir;
   }
 
@@ -37,10 +61,16 @@ export class SyncEngine {
     return this.syncVersion;
   }
 
-  /** Called when code editor changes */
+  private get parser(): ParseFn | undefined {
+    return PARSERS[this.diagramType];
+  }
+
+  private get serializer(): SerializeFn | undefined {
+    return SERIALIZERS[this.diagramType];
+  }
+
   handleCodeChange(code: string) {
     if (this.lastOrigin === 'visual') {
-      // Skip echo from visual → code → visual loop
       this.lastOrigin = null;
       return;
     }
@@ -50,22 +80,18 @@ export class SyncEngine {
     }
 
     this.codeDebounceTimer = setTimeout(() => {
+      const parser = this.parser;
+      if (!parser) return;
+
       this.lastOrigin = 'code';
       this.syncVersion++;
-      this.ir = parseFlowchart(code);
+      this.ir = parser(code);
       this.onIRUpdate?.(this.ir);
     }, this.debounceMs);
   }
 
-  /** Called when visual editor changes */
-  handleVisualChange(updates: {
-    modifiedNodes?: Map<string, IRNode>;
-    modifiedEdges?: Map<number, IREdge>;
-    newNodes?: IRNode[];
-    newEdges?: IREdge[];
-    removedNodes?: Set<string>;
-    removedEdges?: Set<number>;
-  }) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  handleVisualChange(updates: Record<string, any>) {
     if (!this.ir) return;
 
     if (this.lastOrigin === 'code') {
@@ -79,40 +105,44 @@ export class SyncEngine {
 
     this.visualDebounceTimer = setTimeout(() => {
       if (!this.ir) return;
+      const serializer = this.serializer;
+      if (!serializer) return;
 
       this.lastOrigin = 'visual';
       this.syncVersion++;
 
-      // Apply modifications to IR
-      if (updates.modifiedNodes) {
+      // Apply node modifications for flowchart IR
+      if (this.diagramType === 'flowchart' && updates.modifiedNodes) {
+        const flowIR = this.ir as FlowchartIR;
         for (const [id, node] of updates.modifiedNodes) {
-          this.ir.nodes.set(id, node);
+          flowIR.nodes.set(id, node);
+        }
+        if (updates.removedNodes) {
+          for (const id of updates.removedNodes) {
+            flowIR.nodes.delete(id);
+          }
         }
       }
 
-      if (updates.removedNodes) {
-        for (const id of updates.removedNodes) {
-          this.ir.nodes.delete(id);
+      // Apply participant modifications for sequence IR
+      if (this.diagramType === 'sequence' && updates.modifiedParticipants) {
+        const seqIR = this.ir as SequenceIR;
+        for (const [id, p] of updates.modifiedParticipants) {
+          const idx = seqIR.participants.findIndex((pp: { id: string }) => pp.id === id);
+          if (idx >= 0) seqIR.participants[idx] = p;
         }
       }
 
-      // Serialize IR back to code
-      const code = serializeFlowchart(this.ir, {
-        modifiedNodes: updates.modifiedNodes ? new Set(updates.modifiedNodes.keys()) : undefined,
-        modifiedEdges: updates.modifiedEdges ? new Set(updates.modifiedEdges.keys()) : undefined,
-        newNodes: updates.newNodes,
-        newEdges: updates.newEdges,
-        removedNodes: updates.removedNodes,
-        removedEdges: updates.removedEdges,
-      });
-
+      const code = serializer(this.ir, updates);
       this.onCodeUpdate?.(code);
     }, this.debounceMs);
   }
 
-  /** Initialize from code (on load) */
-  initFromCode(code: string) {
-    this.ir = parseFlowchart(code);
+  initFromCode(code: string): DiagramIR | null {
+    const parser = this.parser;
+    if (!parser) return null;
+
+    this.ir = parser(code);
     this.syncVersion++;
     this.lastOrigin = null;
     return this.ir;
