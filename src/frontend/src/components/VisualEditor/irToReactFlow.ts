@@ -41,17 +41,44 @@ export function normalizeToGraphData(ir: DiagramIR, diagramType: string): GraphD
   if (diagramType === 'state') {
     const sir = ir as StateIR;
     const nodes = new Map<string, IRNode>();
+
+    // Determine if [*] is used as start, end, or both
+    const starIsSource = sir.transitions.some(t => t.from === '[*]');
+    const starIsTarget = sir.transitions.some(t => t.to === '[*]');
+
     for (const [id, state] of sir.states) {
-      nodes.set(id, {
-        id,
-        label: state.label,
-        shape: id === '[*]' ? 'circle' : 'rounded',
-        raw: state.raw,
-      });
+      if (id === '[*]') {
+        // Split [*] into separate start and end nodes
+        if (starIsSource) {
+          nodes.set('[*]_start', {
+            id: '[*]_start',
+            label: '[*]',
+            shape: 'circle',
+            raw: state.raw,
+          });
+        }
+        if (starIsTarget) {
+          nodes.set('[*]_end', {
+            id: '[*]_end',
+            label: '[*]',
+            shape: 'double_circle',
+            raw: state.raw,
+          });
+        }
+      } else {
+        nodes.set(id, {
+          id,
+          label: state.label,
+          shape: 'rounded',
+          raw: state.raw,
+        });
+      }
     }
+
+    // Rewrite edges to reference the split start/end nodes
     const edges: IREdge[] = sir.transitions.map(t => ({
-      sourceId: t.from,
-      targetId: t.to,
+      sourceId: t.from === '[*]' ? '[*]_start' : t.from,
+      targetId: t.to === '[*]' ? '[*]_end' : t.to,
       label: t.label,
       lineStyle: 'solid' as EdgeLineStyle,
       arrowType: 'arrow' as EdgeArrowType,
