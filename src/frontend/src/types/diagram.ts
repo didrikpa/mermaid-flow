@@ -20,7 +20,7 @@ export const DIAGRAM_LABELS: Record<DiagramType, string> = {
   state: 'State Diagram',
   er: 'ER Diagram',
   class: 'Class Diagram',
-  other: 'Code Only',
+  other: 'Other (code only)',
 };
 
 export const STARTER_TEMPLATES: Record<DiagramType, string> = {
