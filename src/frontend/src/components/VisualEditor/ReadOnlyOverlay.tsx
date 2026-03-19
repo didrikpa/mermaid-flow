@@ -1,8 +1,7 @@
 import React from 'react';
-import { IRLine } from '../../sync/ir';
 
 interface ReadOnlyOverlayProps {
-  lines: IRLine[];
+  lines: { type: string; raw: string }[];
 }
 
 export const ReadOnlyOverlay: React.FC<ReadOnlyOverlayProps> = ({ lines }) => {
