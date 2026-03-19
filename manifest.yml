@@ -1,0 +1,29 @@
+modules:
+  macro:
+    - key: mermaid-flow-macro
+      resource: main
+      title: Mermaid Flow
+      description: Bidirectional Mermaid diagram editor — code and visual, always in sync.
+      resolver:
+        function: resolver
+  function:
+    - key: resolver
+      handler: src/resolvers/index.handler
+  customUI:
+    - key: main
+      resource: main
+      render: native
+  resources:
+    - key: main
+      path: src/frontend/build
+      tunnel:
+        port: 3000
+
+app:
+  id: ari:cloud:ecosystem::app/mermaid-flow
+  runtime:
+    name: nodejs22.x
+
+permissions:
+  scopes:
+    - storage:app

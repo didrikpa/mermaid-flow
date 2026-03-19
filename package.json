@@ -1,0 +1,19 @@
+{
+  "name": "mermaid-flow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bidirectional Mermaid diagram editor for Confluence",
+  "scripts": {
+    "build": "cd src/frontend && npm run build",
+    "start": "cd src/frontend && npm start",
+    "test": "cd src/frontend && npm test",
+    "lint": "cd src/frontend && npm run lint"
+  },
+  "dependencies": {
+    "@forge/api": "^4.0.0",
+    "@forge/resolver": "^1.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
