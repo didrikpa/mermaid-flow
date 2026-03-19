@@ -5,7 +5,6 @@ import { DiagramRenderer } from './DiagramRenderer';
 import { GraphEditor } from './VisualEditor/GraphEditor';
 import { SequenceEditor } from './VisualEditor/SequenceEditor';
 import { SyncEngine, DiagramIR } from '../sync/SyncEngine';
-import { FlowchartIR } from '../sync/ir';
 import { SequenceIR } from '../sync/ir';
 
 const GRAPH_TYPES = new Set(['flowchart', 'state', 'er', 'class']);
@@ -99,7 +98,8 @@ export const EditMode: React.FC = () => {
         <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
           {isGraphType ? (
             <GraphEditor
-              ir={ir as FlowchartIR | null}
+              ir={ir}
+              diagramType={diagramType!}
               onVisualChange={handleVisualChange}
               syncVersion={syncVersion}
             />
