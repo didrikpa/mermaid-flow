@@ -41,23 +41,20 @@ function serializeNodeShape(node: IRNode): string {
   return `${node.id}${open}${node.label}${close}`;
 }
 
-function serializeEdge(edge: IREdge, nodeMap?: Map<string, IRNode>, modifiedNodes?: Set<string>): string {
+function serializeEdge(edge: IREdge, nodeMap?: Map<string, IRNode>, reserializeAll?: boolean): string {
   const key = `${edge.lineStyle}-${edge.arrowType}`;
   const op = EDGE_OPERATOR_MAP[key] ?? '-->';
 
-  // If source or target nodes are modified, include their inline shape definitions
+  // When re-serializing an edge line, always include shape definitions for
+  // both nodes so that inline shape info isn't lost for the unmodified node.
   let sourceStr = edge.sourceId;
   let targetStr = edge.targetId;
 
-  if (modifiedNodes && nodeMap) {
-    if (modifiedNodes.has(edge.sourceId)) {
-      const node = nodeMap.get(edge.sourceId);
-      if (node) sourceStr = serializeNodeShape(node);
-    }
-    if (modifiedNodes.has(edge.targetId)) {
-      const node = nodeMap.get(edge.targetId);
-      if (node) targetStr = serializeNodeShape(node);
-    }
+  if (reserializeAll && nodeMap) {
+    const sourceNode = nodeMap.get(edge.sourceId);
+    if (sourceNode) sourceStr = serializeNodeShape(sourceNode);
+    const targetNode = nodeMap.get(edge.targetId);
+    if (targetNode) targetStr = serializeNodeShape(targetNode);
   }
 
   if (edge.label) {
@@ -106,7 +103,7 @@ export function serializeFlowchart(ir: FlowchartIR, modified?: {
       const sourceModified = modified?.modifiedNodes?.has(line.edge.sourceId);
       const targetModified = modified?.modifiedNodes?.has(line.edge.targetId);
       if (edgeModified || sourceModified || targetModified) {
-        result.push(line.indent + serializeEdge(line.edge, ir.nodes, modified?.modifiedNodes));
+        result.push(line.indent + serializeEdge(line.edge, ir.nodes, true));
       } else {
         result.push(line.raw);
       }
