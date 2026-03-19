@@ -149,9 +149,12 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, diagramType, onVis
     [edges, nodes, setEdges, onVisualChange]
   );
 
+  const selectedNodeIdsRef = useRef<Set<string>>(new Set());
+
   const onSelectionChange = useCallback(({ nodes: selNodes, edges: selEdges }: OnSelectionChangeParams) => {
     setSelectedNode(selNodes.length === 1 ? selNodes[0] as Node<FlowNode> : null);
     setSelectedEdge(selEdges.length === 1 ? selEdges[0] as Edge<FlowEdge> : null);
+    selectedNodeIdsRef.current = new Set(selNodes.map(n => n.id));
   }, []);
 
   const handlePaneClick = useCallback(() => {
@@ -170,6 +173,11 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, diagramType, onVis
         nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...data } } : n))
       );
 
+      // Keep selectedNode in sync so PropertyPanel input stays current
+      setSelectedNode((prev) =>
+        prev && prev.id === id ? { ...prev, data: { ...prev.data, ...data } } : prev
+      );
+
       if (graphDataRef.current) {
         isVisualEditRef.current = true;
         const updatedNodes = nodes.map((n) =>
@@ -184,14 +192,21 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, diagramType, onVis
 
   const handleEdgeUpdate = useCallback(
     (id: string, data: Partial<FlowEdge>) => {
+      // Update both data.label (for syncing) and top-level label (for React Flow display)
+      const labelUpdate = 'label' in data ? { label: data.label || undefined } : {};
       setEdges((eds) =>
-        eds.map((e) => (e.id === id ? { ...e, data: { ...e.data!, ...data } } : e))
+        eds.map((e) => (e.id === id ? { ...e, ...labelUpdate, data: { ...e.data!, ...data } } : e))
+      );
+
+      // Keep selectedEdge in sync so PropertyPanel input stays current
+      setSelectedEdge((prev) =>
+        prev && prev.id === id ? { ...prev, ...labelUpdate, data: { ...prev.data!, ...data } } : prev
       );
 
       if (graphDataRef.current) {
         isVisualEditRef.current = true;
         const updatedEdges = edges.map((e) =>
-          e.id === id ? { ...e, data: { ...e.data!, ...data } } : e
+          e.id === id ? { ...e, ...labelUpdate, data: { ...e.data!, ...data } } : e
         );
         const updates = reactFlowToIRUpdates(nodes, updatedEdges, graphDataRef.current);
         onVisualChange(updates);
@@ -328,14 +343,11 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, diagramType, onVis
   }, [contextMenu, nodes, edges, setNodes, setEdges, onVisualChange, handleDuplicateNode]);
 
   // Alignment tools — operate on all selected nodes
-  const getSelectedNodes = useCallback(() => nodes.filter(n => n.selected), [nodes]);
-
   const handleAlign = useCallback((direction: 'left' | 'top' | 'h-distribute' | 'v-distribute') => {
-    const selected = getSelectedNodes();
-    if (selected.length < 2) return;
+    const selectedIds = selectedNodeIdsRef.current;
+    if (selectedIds.size < 2) return;
 
     setNodes((nds) => {
-      const selectedIds = new Set(selected.map(n => n.id));
       const selectedList = nds.filter(n => selectedIds.has(n.id));
 
       let updates: Map<string, { x: number; y: number }>;
@@ -377,7 +389,7 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, diagramType, onVis
         return n;
       });
     });
-  }, [getSelectedNodes, setNodes]);
+  }, [setNodes]);
 
   const handleAutoLayout = useCallback(() => {
     if (!graphDataRef.current) return;
@@ -439,7 +451,7 @@ export const GraphEditor: React.FC<GraphEditorProps> = ({ ir, diagramType, onVis
           style={{ background: '#f4f5f7', border: '1px solid #dfe1e6' }}
         />
         <Panel position="top-left">
-          <div style={{ display: 'flex', gap: 4 }}>
+          <div style={{ display: 'flex', gap: 4 }} onMouseDown={(e) => e.stopPropagation()}>
             <button
               onClick={handleAddNode}
               style={{
