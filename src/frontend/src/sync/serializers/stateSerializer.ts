@@ -7,6 +7,15 @@ function serializeTransition(t: StateTransition): string {
   return `${t.from} --> ${t.to}`;
 }
 
+function serializeStateDef(state: StateNode, indent: string): string {
+  // [*] nodes don't need a state definition line
+  if (state.id === '[*]') return '';
+  if (state.label !== state.id) {
+    return `${indent}state "${state.label}" as ${state.id}`;
+  }
+  return `${indent}${state.id}`;
+}
+
 export function serializeState(ir: StateIR, modified?: {
   modifiedStates?: Set<string>;
   modifiedTransitions?: Set<number>;
@@ -28,6 +37,12 @@ export function serializeState(ir: StateIR, modified?: {
         transIndex++;
         continue;
       }
+    }
+
+    if (line.type === 'state_def' && line.state && modified?.modifiedStates?.has(line.state.id)) {
+      const serialized = serializeStateDef(line.state, line.indent);
+      if (serialized) result.push(serialized);
+      continue;
     }
 
     if (line.type === 'transition' && line.transition && modified?.modifiedTransitions?.has(transIndex)) {
