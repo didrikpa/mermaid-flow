@@ -234,12 +234,48 @@ function translateUpdates(diagramType: string, ir: DiagramIR, updates: Record<st
   return updates;
 }
 
+/**
+ * Merge two visual update objects, concatenating arrays and merging Maps/Sets.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mergeVisualUpdates(prev: Record<string, any>, next: Record<string, any>): Record<string, any> {
+  const result = { ...prev };
+  for (const key of Object.keys(next)) {
+    const pv = prev[key];
+    const nv = next[key];
+    if (nv === undefined) continue;
+
+    if (pv === undefined) {
+      result[key] = nv;
+    } else if (Array.isArray(pv) && Array.isArray(nv)) {
+      // Concat arrays (newNodes, newEdges, newParticipants, newMessages, etc.)
+      result[key] = [...pv, ...nv];
+    } else if (pv instanceof Map && nv instanceof Map) {
+      // Merge Maps (modifiedNodes, modifiedParticipants, etc.)
+      const merged = new Map(pv);
+      for (const [k, v] of nv) merged.set(k, v);
+      result[key] = merged;
+    } else if (pv instanceof Set && nv instanceof Set) {
+      // Union Sets (removedNodes, removedEdges, etc.)
+      result[key] = new Set([...pv, ...nv]);
+    } else {
+      // For primitives or ordered lists (reorderedParticipants), latest wins
+      result[key] = nv;
+    }
+  }
+  return result;
+}
+
 export class SyncEngine {
   private ir: DiagramIR | null = null;
   private syncVersion = 0;
   private lastOrigin: SyncOrigin | null = null;
   private codeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private visualDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingCodeChange: (() => void) | null = null;
+  private pendingVisualChange: (() => void) | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private accumulatedVisualUpdates: Record<string, any> | null = null;
   private onCodeUpdate: ((code: string) => void) | null = null;
   private onIRUpdate: ((ir: DiagramIR) => void) | null = null;
   private diagramType: string;
@@ -281,7 +317,8 @@ export class SyncEngine {
       clearTimeout(this.codeDebounceTimer);
     }
 
-    this.codeDebounceTimer = setTimeout(() => {
+    const doChange = () => {
+      this.pendingCodeChange = null;
       const parser = this.parser;
       if (!parser) return;
 
@@ -289,7 +326,10 @@ export class SyncEngine {
       this.syncVersion++;
       this.ir = parser(code);
       this.onIRUpdate?.(this.ir);
-    }, this.debounceMs);
+    };
+
+    this.pendingCodeChange = doChange;
+    this.codeDebounceTimer = setTimeout(doChange, this.debounceMs);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -305,8 +345,16 @@ export class SyncEngine {
       clearTimeout(this.visualDebounceTimer);
     }
 
-    this.visualDebounceTimer = setTimeout(() => {
-      if (!this.ir) return;
+    // Merge with any accumulated updates from prior calls within the debounce window
+    this.accumulatedVisualUpdates = this.accumulatedVisualUpdates
+      ? mergeVisualUpdates(this.accumulatedVisualUpdates, updates)
+      : { ...updates };
+
+    const doChange = () => {
+      this.pendingVisualChange = null;
+      const merged = this.accumulatedVisualUpdates;
+      this.accumulatedVisualUpdates = null;
+      if (!this.ir || !merged) return;
       const serializer = this.serializer;
       if (!serializer) return;
 
@@ -314,19 +362,31 @@ export class SyncEngine {
       this.syncVersion++;
 
       // Apply participant modifications for sequence IR
-      if (this.diagramType === 'sequence' && updates.modifiedParticipants) {
+      if (this.diagramType === 'sequence' && merged.modifiedParticipants) {
         const seqIR = this.ir as SequenceIR;
-        for (const [id, p] of updates.modifiedParticipants) {
+        for (const [id, p] of merged.modifiedParticipants) {
           const idx = seqIR.participants.findIndex((pp: { id: string }) => pp.id === id);
           if (idx >= 0) seqIR.participants[idx] = p;
         }
       }
 
       // Translate graph-editor updates to native serializer format
-      const translated = translateUpdates(this.diagramType, this.ir, updates);
+      const translated = translateUpdates(this.diagramType, this.ir, merged);
       const code = serializer(this.ir, translated);
+
+      // Re-parse to keep IR in sync with the serialized code.
+      // This is necessary because add/remove operations change the IR structure
+      // (new lines, shifted indices) and the serializer doesn't update the IR.
+      const parser = this.parser;
+      if (parser) {
+        this.ir = parser(code);
+      }
+
       this.onCodeUpdate?.(code);
-    }, this.debounceMs);
+    };
+
+    this.pendingVisualChange = doChange;
+    this.visualDebounceTimer = setTimeout(doChange, this.debounceMs);
   }
 
   initFromCode(code: string): DiagramIR | null {
@@ -339,8 +399,26 @@ export class SyncEngine {
     return this.ir;
   }
 
+  /**
+   * Flush any pending debounced changes, then clean up timers.
+   * This ensures no edits are lost when the editor unmounts.
+   */
+  flush() {
+    if (this.pendingCodeChange) {
+      if (this.codeDebounceTimer) clearTimeout(this.codeDebounceTimer);
+      this.codeDebounceTimer = null;
+      this.pendingCodeChange();
+      this.pendingCodeChange = null;
+    }
+    if (this.pendingVisualChange) {
+      if (this.visualDebounceTimer) clearTimeout(this.visualDebounceTimer);
+      this.visualDebounceTimer = null;
+      this.pendingVisualChange();
+      this.pendingVisualChange = null;
+    }
+  }
+
   destroy() {
-    if (this.codeDebounceTimer) clearTimeout(this.codeDebounceTimer);
-    if (this.visualDebounceTimer) clearTimeout(this.visualDebounceTimer);
+    this.flush();
   }
 }
