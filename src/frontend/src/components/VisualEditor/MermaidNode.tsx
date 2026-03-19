@@ -31,6 +31,13 @@ export const MermaidNode: React.FC<MermaidNodeProps> = ({ data, selected }) => {
   const shape = (data.shape || 'rectangle') as NodeShape;
   const shapeStyle = SHAPE_STYLES[shape] || SHAPE_STYLES.rectangle;
   const isRotated = shape === 'rhombus';
+  const isSkewed = shape === 'parallelogram' || shape === 'parallelogram_alt';
+  const needsCounterTransform = isRotated || isSkewed;
+  const counterTransform: React.CSSProperties | undefined = isRotated
+    ? { transform: 'rotate(-45deg)' }
+    : isSkewed
+    ? { transform: shape === 'parallelogram' ? 'skewX(10deg)' : 'skewX(-10deg)' }
+    : undefined;
 
   const handleDoubleClick = useCallback(() => {
     setIsEditing(true);
@@ -73,7 +80,7 @@ export const MermaidNode: React.FC<MermaidNodeProps> = ({ data, selected }) => {
       onDoubleClick={handleDoubleClick}
     >
       <Handle type="target" position={Position.Top} style={{ background: '#4c9aff', width: 8, height: 8 }} />
-      <div style={isRotated ? { transform: 'rotate(-45deg)' } : undefined}>
+      <div style={needsCounterTransform ? counterTransform : undefined}>
         {isEditing ? (
           <input
             value={editLabel}
