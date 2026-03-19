@@ -8,6 +8,7 @@ interface PropertyPanelProps {
   selectedEdge: Edge<FlowEdge> | null;
   onNodeUpdate: (id: string, data: Partial<FlowNode>) => void;
   onEdgeUpdate: (id: string, data: Partial<FlowEdge>) => void;
+  onClose: () => void;
 }
 
 const NODE_SHAPES: { value: NodeShape; label: string }[] = [
@@ -52,6 +53,23 @@ const panelStyle: React.CSSProperties = {
   boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
 };
 
+const headerStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  marginBottom: 4,
+};
+
+const closeBtnStyle: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  fontSize: 16,
+  color: '#6b778c',
+  padding: '0 2px',
+  lineHeight: 1,
+};
+
 const labelStyle: React.CSSProperties = {
   display: 'block',
   fontSize: 11,
@@ -82,13 +100,17 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
   selectedEdge,
   onNodeUpdate,
   onEdgeUpdate,
+  onClose,
 }) => {
   if (!selectedNode && !selectedEdge) return null;
 
   if (selectedNode) {
     return (
-      <div style={panelStyle}>
-        <div style={{ fontWeight: 600, color: '#172b4d', marginBottom: 4 }}>Node Properties</div>
+      <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
+        <div style={headerStyle}>
+          <span style={{ fontWeight: 600, color: '#172b4d' }}>Node Properties</span>
+          <button onClick={onClose} aria-label="Close panel" style={closeBtnStyle}>&times;</button>
+        </div>
         <label style={{ ...labelStyle, marginTop: 8 }}>Label</label>
         <input
           style={inputStyle}
@@ -111,8 +133,11 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
 
   if (selectedEdge) {
     return (
-      <div style={panelStyle}>
-        <div style={{ fontWeight: 600, color: '#172b4d', marginBottom: 4 }}>Edge Properties</div>
+      <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
+        <div style={headerStyle}>
+          <span style={{ fontWeight: 600, color: '#172b4d' }}>Edge Properties</span>
+          <button onClick={onClose} aria-label="Close panel" style={closeBtnStyle}>&times;</button>
+        </div>
         <label style={{ ...labelStyle, marginTop: 8 }}>Label</label>
         <input
           style={inputStyle}
