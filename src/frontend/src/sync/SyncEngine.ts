@@ -1,4 +1,7 @@
-import { FlowchartIR, SequenceIR, StateIR, ERIR, ClassIR } from './ir';
+import {
+  FlowchartIR, SequenceIR, StateIR, ERIR, ClassIR,
+  IRNode, IREdge, StateNode, StateTransition, ERRelationship, ClassRelation,
+} from './ir';
 import { parseFlowchart } from './parsers/flowchartParser';
 import { serializeFlowchart } from './serializers/flowchartSerializer';
 import { parseSequence } from './parsers/sequenceParser';
@@ -31,6 +34,190 @@ const SERIALIZERS: Record<string, SerializeFn> = {
   er: serializeER as SerializeFn,
   class: serializeClass as SerializeFn,
 };
+
+/**
+ * Translate graph-editor updates (IRNode/IREdge-based) into the native
+ * format expected by each diagram type's serializer, and apply changes
+ * to the IR in-place.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function translateUpdates(diagramType: string, ir: DiagramIR, updates: Record<string, any>): Record<string, any> {
+  if (diagramType === 'flowchart') {
+    // Flowchart: apply modifiedNodes to the IR in-place
+    const flowIR = ir as FlowchartIR;
+    if (updates.modifiedNodes) {
+      for (const [id, node] of updates.modifiedNodes as Map<string, IRNode>) {
+        flowIR.nodes.set(id, node);
+      }
+    }
+    if (updates.removedNodes) {
+      for (const id of updates.removedNodes as Set<string>) {
+        flowIR.nodes.delete(id);
+      }
+    }
+    // Convert Maps/Sets to the format the flowchart serializer expects
+    return {
+      modifiedNodes: updates.modifiedNodes ? new Set((updates.modifiedNodes as Map<string, IRNode>).keys()) : undefined,
+      modifiedEdges: updates.modifiedEdges ? new Set((updates.modifiedEdges as Map<number, IREdge>).keys()) : undefined,
+      newNodes: updates.newNodes,
+      newEdges: updates.newEdges,
+      removedNodes: updates.removedNodes,
+      removedEdges: updates.removedEdges,
+    };
+  }
+
+  if (diagramType === 'state') {
+    const stateIR = ir as StateIR;
+    const modifiedNodes = updates.modifiedNodes as Map<string, IRNode> | undefined;
+    const removedNodes = updates.removedNodes as Set<string> | undefined;
+    const newNodes = updates.newNodes as IRNode[] | undefined;
+    const modifiedEdges = updates.modifiedEdges as Map<number, IREdge> | undefined;
+    const newEdges = updates.newEdges as IREdge[] | undefined;
+    const removedEdges = updates.removedEdges as Set<number> | undefined;
+
+    // Apply label changes to state nodes in IR
+    const modifiedStates = new Set<string>();
+    if (modifiedNodes) {
+      for (const [id, irNode] of modifiedNodes) {
+        const state = stateIR.states.get(id);
+        if (state && state.label !== irNode.label) {
+          state.label = irNode.label;
+          modifiedStates.add(id);
+          // Also update the line reference
+          for (const line of stateIR.lines) {
+            if (line.state && line.state.id === id) {
+              line.state.label = irNode.label;
+            }
+          }
+        }
+      }
+    }
+
+    // Map split [*]_start / [*]_end IDs back to [*]
+    const unstar = (id: string) => (id === '[*]_start' || id === '[*]_end') ? '[*]' : id;
+
+    // Apply transition changes
+    const modifiedTransitions = new Set<number>();
+    if (modifiedEdges) {
+      for (const [idx, irEdge] of modifiedEdges) {
+        if (idx < stateIR.transitions.length) {
+          stateIR.transitions[idx] = {
+            ...stateIR.transitions[idx],
+            from: unstar(irEdge.sourceId),
+            to: unstar(irEdge.targetId),
+            label: irEdge.label,
+          };
+          modifiedTransitions.add(idx);
+        }
+      }
+    }
+
+    // Convert new nodes to StateNode format (skip visual-only start/end splits)
+    const newStates: StateNode[] | undefined = newNodes
+      ?.filter(n => n.id !== '[*]_start' && n.id !== '[*]_end')
+      .map(n => ({
+        id: n.id,
+        label: n.label,
+        isStart: n.id === '[*]',
+        isEnd: false,
+        raw: '',
+      }));
+
+    // Convert new edges to StateTransition format
+    const newTransitions: StateTransition[] | undefined = newEdges?.map(e => ({
+      from: unstar(e.sourceId),
+      to: unstar(e.targetId),
+      label: e.label,
+      raw: '',
+    }));
+
+    return {
+      modifiedStates: modifiedStates.size > 0 ? modifiedStates : undefined,
+      modifiedTransitions: modifiedTransitions.size > 0 ? modifiedTransitions : undefined,
+      newStates,
+      newTransitions,
+      removedStates: removedNodes ? new Set([...removedNodes].map(unstar)) : undefined,
+      removedTransitions: removedEdges,
+    };
+  }
+
+  if (diagramType === 'er') {
+    const erIR = ir as ERIR;
+    const modifiedEdges = updates.modifiedEdges as Map<number, IREdge> | undefined;
+    const newEdges = updates.newEdges as IREdge[] | undefined;
+    const removedEdges = updates.removedEdges as Set<number> | undefined;
+
+    // Apply relationship changes
+    const modifiedRelationships = new Set<number>();
+    if (modifiedEdges) {
+      for (const [idx, irEdge] of modifiedEdges) {
+        if (idx < erIR.relationships.length) {
+          erIR.relationships[idx] = {
+            ...erIR.relationships[idx],
+            entityA: irEdge.sourceId,
+            entityB: irEdge.targetId,
+            label: irEdge.label,
+          };
+          modifiedRelationships.add(idx);
+        }
+      }
+    }
+
+    const newRelationships: ERRelationship[] | undefined = newEdges?.map(e => ({
+      entityA: e.sourceId,
+      cardA: '||',
+      cardB: 'o{',
+      entityB: e.targetId,
+      label: e.label || 'relates',
+      raw: '',
+    }));
+
+    return {
+      modifiedRelationships: modifiedRelationships.size > 0 ? modifiedRelationships : undefined,
+      newRelationships,
+      removedRelationships: removedEdges,
+    };
+  }
+
+  if (diagramType === 'class') {
+    const classIR = ir as ClassIR;
+    const modifiedEdges = updates.modifiedEdges as Map<number, IREdge> | undefined;
+    const newEdges = updates.newEdges as IREdge[] | undefined;
+    const removedEdges = updates.removedEdges as Set<number> | undefined;
+
+    // Apply relation changes
+    const modifiedRelations = new Set<number>();
+    if (modifiedEdges) {
+      for (const [idx, irEdge] of modifiedEdges) {
+        if (idx < classIR.relations.length) {
+          classIR.relations[idx] = {
+            ...classIR.relations[idx],
+            classA: irEdge.sourceId,
+            classB: irEdge.targetId,
+            label: irEdge.label,
+          };
+          modifiedRelations.add(idx);
+        }
+      }
+    }
+
+    const newRelations: ClassRelation[] | undefined = newEdges?.map(e => ({
+      classA: e.sourceId,
+      classB: e.targetId,
+      relationType: 'association' as const,
+      label: e.label || '',
+      raw: '',
+    }));
+
+    return {
+      modifiedRelations: modifiedRelations.size > 0 ? modifiedRelations : undefined,
+      newRelations,
+      removedRelations: removedEdges,
+    };
+  }
+
+  return updates;
+}
 
 export class SyncEngine {
   private ir: DiagramIR | null = null;
@@ -111,19 +298,6 @@ export class SyncEngine {
       this.lastOrigin = 'visual';
       this.syncVersion++;
 
-      // Apply node modifications for flowchart IR
-      if (this.diagramType === 'flowchart' && updates.modifiedNodes) {
-        const flowIR = this.ir as FlowchartIR;
-        for (const [id, node] of updates.modifiedNodes) {
-          flowIR.nodes.set(id, node);
-        }
-        if (updates.removedNodes) {
-          for (const id of updates.removedNodes) {
-            flowIR.nodes.delete(id);
-          }
-        }
-      }
-
       // Apply participant modifications for sequence IR
       if (this.diagramType === 'sequence' && updates.modifiedParticipants) {
         const seqIR = this.ir as SequenceIR;
@@ -133,7 +307,9 @@ export class SyncEngine {
         }
       }
 
-      const code = serializer(this.ir, updates);
+      // Translate graph-editor updates to native serializer format
+      const translated = translateUpdates(this.diagramType, this.ir, updates);
+      const code = serializer(this.ir, translated);
       this.onCodeUpdate?.(code);
     }, this.debounceMs);
   }
