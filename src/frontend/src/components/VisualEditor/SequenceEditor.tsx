@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, MouseEvent as ReactMouseEvent } from 'react';
 import { SequenceIR, SequenceParticipant, SequenceMessage, SequenceArrowType } from '../../sync/ir';
 
 interface SequenceEditorProps {
@@ -74,10 +74,10 @@ export const SequenceEditor: React.FC<SequenceEditorProps> = ({ ir, onVisualChan
     onVisualChange({ modifiedParticipants, modifiedMessages });
   }, [onVisualChange]);
 
-  // Add participant
-  const handleAddParticipant = useCallback(() => {
+  // Add participant or actor
+  const handleAddParticipant = useCallback((type: 'participant' | 'actor' = 'participant') => {
     const id = `P${nextParticipantId++}`;
-    const newP: SequenceParticipant = { id, alias: id, type: 'participant', raw: '' };
+    const newP: SequenceParticipant = { id, alias: id, type, raw: '' };
     const updated = [...participants, newP];
     setParticipants(updated);
     isVisualEditRef.current = true;
@@ -144,8 +144,22 @@ export const SequenceEditor: React.FC<SequenceEditorProps> = ({ ir, onVisualChan
     onVisualChange({ removedMessages: new Set([idx]) });
   }, [messages, onVisualChange]);
 
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const handleBackgroundClick = useCallback((e: ReactMouseEvent) => {
+    // Dismiss the message panel when clicking outside it and outside messages
+    if (selectedMsg !== null && panelRef.current && !panelRef.current.contains(e.target as Node)) {
+      const target = e.target as SVGElement | HTMLElement;
+      // Don't dismiss if clicking on a message arrow or its label
+      if (!target.closest?.('g[style*="cursor: pointer"]')) {
+        setSelectedMsg(null);
+      }
+    }
+  }, [selectedMsg]);
+
   return (
-    <div style={{ width: '100%', height: '100%', overflow: 'auto', position: 'relative' }}>
+    <div style={{ width: '100%', height: '100%', overflow: 'auto', position: 'relative' }}
+      onClick={handleBackgroundClick}>
       {/* Toolbar */}
       <div style={{
         padding: '6px 12px',
@@ -157,7 +171,8 @@ export const SequenceEditor: React.FC<SequenceEditorProps> = ({ ir, onVisualChan
         top: 0,
         zIndex: 10,
       }}>
-        <button onClick={handleAddParticipant} style={toolbarBtnStyle}>+ Participant</button>
+        <button onClick={() => handleAddParticipant('participant')} style={toolbarBtnStyle}>+ Participant</button>
+        <button onClick={() => handleAddParticipant('actor')} style={toolbarBtnStyle}>+ Actor</button>
         <button onClick={handleAddMessage} style={toolbarBtnStyle} disabled={participants.length < 2}>+ Message</button>
       </div>
 
@@ -171,24 +186,57 @@ export const SequenceEditor: React.FC<SequenceEditorProps> = ({ ir, onVisualChan
               {/* Lifeline */}
               <line x1={x} y1={HEADER_HEIGHT} x2={x} y2={totalHeight - 20}
                 stroke="#dfe1e6" strokeWidth={1} strokeDasharray="4,4" />
-              {/* Header box */}
-              <rect
-                x={x - LANE_WIDTH / 2 + 10} y={10}
-                width={LANE_WIDTH - 20} height={40}
-                rx={4} fill="#fff" stroke={editingParticipant === p.id ? '#4c9aff' : '#dfe1e6'}
-                strokeWidth={editingParticipant === p.id ? 2 : 1}
-                style={{ cursor: 'grab' }}
-                onMouseDown={() => setDragSource(p.id)}
-                onMouseUp={() => {
-                  if (dragSource && dragSource !== p.id) {
-                    handleParticipantDrop(dragSource, i);
-                  }
-                  setDragSource(null);
-                }}
-                onDoubleClick={() => setEditingParticipant(p.id)}
-              />
+
+              {p.type === 'actor' ? (
+                /* Stick figure for actors */
+                <g
+                  style={{ cursor: 'grab' }}
+                  onMouseDown={() => setDragSource(p.id)}
+                  onMouseUp={() => {
+                    if (dragSource && dragSource !== p.id) {
+                      handleParticipantDrop(dragSource, i);
+                    }
+                    setDragSource(null);
+                  }}
+                  onDoubleClick={() => setEditingParticipant(p.id)}
+                >
+                  {/* Head */}
+                  <circle cx={x} cy={16} r={6}
+                    fill="none" stroke={editingParticipant === p.id ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
+                  {/* Body */}
+                  <line x1={x} y1={22} x2={x} y2={35}
+                    stroke={editingParticipant === p.id ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
+                  {/* Arms */}
+                  <line x1={x - 10} y1={27} x2={x + 10} y2={27}
+                    stroke={editingParticipant === p.id ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
+                  {/* Legs */}
+                  <line x1={x} y1={35} x2={x - 8} y2={45}
+                    stroke={editingParticipant === p.id ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
+                  <line x1={x} y1={35} x2={x + 8} y2={45}
+                    stroke={editingParticipant === p.id ? '#4c9aff' : '#42526e'} strokeWidth={1.5} />
+                </g>
+              ) : (
+                /* Box for participants */
+                <rect
+                  x={x - LANE_WIDTH / 2 + 10} y={10}
+                  width={LANE_WIDTH - 20} height={40}
+                  rx={4} fill="#fff" stroke={editingParticipant === p.id ? '#4c9aff' : '#dfe1e6'}
+                  strokeWidth={editingParticipant === p.id ? 2 : 1}
+                  style={{ cursor: 'grab' }}
+                  onMouseDown={() => setDragSource(p.id)}
+                  onMouseUp={() => {
+                    if (dragSource && dragSource !== p.id) {
+                      handleParticipantDrop(dragSource, i);
+                    }
+                    setDragSource(null);
+                  }}
+                  onDoubleClick={() => setEditingParticipant(p.id)}
+                />
+              )}
+
+              {/* Label */}
               {editingParticipant === p.id ? (
-                <foreignObject x={x - LANE_WIDTH / 2 + 14} y={16} width={LANE_WIDTH - 28} height={28}>
+                <foreignObject x={x - LANE_WIDTH / 2 + 14} y={p.type === 'actor' ? 46 : 16} width={LANE_WIDTH - 28} height={28}>
                   <input
                     autoFocus
                     defaultValue={p.alias}
@@ -208,12 +256,12 @@ export const SequenceEditor: React.FC<SequenceEditorProps> = ({ ir, onVisualChan
                   />
                 </foreignObject>
               ) : (
-                <text x={x} y={35} textAnchor="middle" fontSize={12} fill="#172b4d" fontWeight={500}>
+                <text x={x} y={p.type === 'actor' ? 58 : 35} textAnchor="middle" fontSize={12} fill="#172b4d" fontWeight={500}>
                   {p.alias}
                 </text>
               )}
               {/* Remove button */}
-              <text x={x + LANE_WIDTH / 2 - 16} y={22} fontSize={12} fill="#ae2a19"
+              <text x={x + LANE_WIDTH / 2 - 16} y={p.type === 'actor' ? 14 : 22} fontSize={12} fill="#ae2a19"
                 style={{ cursor: 'pointer' }}
                 onClick={() => handleRemoveParticipant(p.id)}>
                 x
@@ -236,6 +284,9 @@ export const SequenceEditor: React.FC<SequenceEditorProps> = ({ ir, onVisualChan
 
           return (
             <g key={i} onClick={() => setSelectedMsg(isSelected ? null : i)} style={{ cursor: 'pointer' }}>
+              {/* Invisible wide hit area for easier clicking */}
+              <line x1={x1} y1={y} x2={x2} y2={y}
+                stroke="transparent" strokeWidth={16} />
               {/* Arrow line */}
               <line x1={x1} y1={y} x2={x2} y2={y}
                 stroke={isSelected ? '#4c9aff' : '#42526e'}
@@ -269,13 +320,25 @@ export const SequenceEditor: React.FC<SequenceEditorProps> = ({ ir, onVisualChan
 
       {/* Selected message editor */}
       {selectedMsg !== null && messages[selectedMsg] && (
-        <div style={{
+        <div ref={panelRef} onClick={(e) => e.stopPropagation()} style={{
           position: 'absolute', right: 8, top: 48, width: 220,
           background: '#fff', border: '1px solid #dfe1e6',
           borderRadius: 8, padding: 16, fontSize: 13,
           boxShadow: '0 2px 8px rgba(0,0,0,0.1)', zIndex: 20,
         }}>
-          <div style={{ fontWeight: 600, marginBottom: 8, color: '#172b4d' }}>Message</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontWeight: 600, color: '#172b4d' }}>Message</span>
+            <button
+              onClick={() => setSelectedMsg(null)}
+              aria-label="Close message editor"
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                fontSize: 16, color: '#6b778c', padding: '0 2px', lineHeight: 1,
+              }}
+            >
+              &times;
+            </button>
+          </div>
           <label style={labelStyle}>Text</label>
           <input style={inputStyle}
             value={messages[selectedMsg].text}
