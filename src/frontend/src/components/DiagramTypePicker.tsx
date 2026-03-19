@@ -41,17 +41,22 @@ export const DiagramTypePicker: React.FC<DiagramTypePickerProps> = ({ onSelect }
       }}>
         Choose a diagram type to get started with a template
       </p>
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, 1fr)',
-        gap: 12,
-        maxWidth: 480,
-        width: '100%',
-      }}>
+      <div
+        role="group"
+        aria-label="Diagram type selection"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: 12,
+          maxWidth: 480,
+          width: '100%',
+        }}
+      >
         {TYPES.map((type) => (
           <button
             key={type}
             onClick={() => onSelect(type)}
+            aria-label={`Create ${DIAGRAM_LABELS[type]} diagram`}
             style={{
               display: 'flex',
               flexDirection: 'column',
