@@ -5,6 +5,7 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { syntaxHighlighting, HighlightStyle, StreamLanguage, StringStream } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { Diagnostic, setDiagnostics } from '@codemirror/lint';
+import { search, searchKeymap } from '@codemirror/search';
 
 // Mermaid syntax highlighting via StreamLanguage
 const mermaidStreamParser = {
@@ -82,7 +83,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, parseEr
         highlightActiveLine(),
         drawSelection(),
         history(),
-        keymap.of([...defaultKeymap, ...historyKeymap]),
+        search(),
+        keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
         mermaidLanguage,
         syntaxHighlighting(mermaidHighlightStyle),
         EditorView.updateListener.of(handleUpdate),
