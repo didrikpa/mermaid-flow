@@ -111,7 +111,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
 
   if (selectedNode) {
     return (
-      <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
+      <div style={panelStyle} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
         <div style={headerStyle}>
           <span style={{ fontWeight: 600, color: '#172b4d' }}>Node Properties</span>
           <button onClick={onClose} aria-label="Close panel" style={closeBtnStyle}>&times;</button>
@@ -142,7 +142,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
 
   if (selectedEdge) {
     return (
-      <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
+      <div style={panelStyle} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
         <div style={headerStyle}>
           <span style={{ fontWeight: 600, color: '#172b4d' }}>Edge Properties</span>
           <button onClick={onClose} aria-label="Close panel" style={closeBtnStyle}>&times;</button>
