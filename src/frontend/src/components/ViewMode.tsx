@@ -32,6 +32,7 @@ export const ViewMode: React.FC<ViewModeProps> = ({ code }) => {
       <button
         onClick={handleCopy}
         title="Copy Mermaid code"
+        aria-label={copied ? 'Mermaid code copied to clipboard' : 'Copy Mermaid code to clipboard'}
         style={{
           position: 'absolute',
           top: 8,
